@@ -1,4 +1,4 @@
-  
+
 name: NOVA MIND - Android APK
 
 on:
@@ -19,11 +19,11 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Java 17
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
@@ -35,105 +35,95 @@ jobs:
           accept-android-sdk-licenses: 'true'
           log-accepted-android-sdk-licenses: 'false'
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         shell: bash
         run: |
           set -euo pipefail
-
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Extract ZIP and locate project
+      - name: Extract and locate project
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_4.zip"
-          EXTRACT_DIR="$RUNNER_TEMP/nova-mind-source"
+          ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_4.zip"
+          DEST="$RUNNER_TEMP/nova-mind-source"
 
-          if [ ! -s "$ZIP_FILE" ]; then
-            echo "HATA: Proje ZIP dosyası bulunamadı veya boş."
-            find "$GITHUB_WORKSPACE" -maxdepth 3 -type f
-            exit 1
-          fi
+          test -s "$ZIP"
+          unzip -tq "$ZIP"
 
-          echo "ZIP kontrol ediliyor..."
-          unzip -tq "$ZIP_FILE"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          unzip -oq "$ZIP" -d "$DEST"
 
-          rm -rf "$EXTRACT_DIR"
-          mkdir -p "$EXTRACT_DIR"
+          PROJECT=""
+          ANDROID_FILE=""
 
-          echo "Proje ZIP dosyası açılıyor..."
-          unzip -oq "$ZIP_FILE" -d "$EXTRACT_DIR"
-
-          PROJECT_DIR=""
-          ANDROID_BUILD_FILE=""
-
-          while IFS= read -r -d '' SETTINGS_FILE; do
-            CANDIDATE="$(dirname "$SETTINGS_FILE")"
-
-            ANDROID_FILE=""
-            CORE_FILE=""
+          while IFS= read -r -d '' SETTINGS; do
+            DIR="$(dirname "$SETTINGS")"
 
             for FILE in \
-              "$CANDIDATE/android/build.gradle" \
-              "$CANDIDATE/android/build.gradle.kts"; do
-              if [ -f "$FILE" ]; then
+              "$DIR/android/build.gradle" \
+              "$DIR/android/build.gradle.kts"; do
+
+              if [ -f "$FILE" ] && \
+                 { [ -f "$DIR/core/build.gradle" ] || \
+                   [ -f "$DIR/core/build.gradle.kts" ]; }; then
+                PROJECT="$DIR"
                 ANDROID_FILE="$FILE"
-                break
+                break 2
               fi
             done
-
-            for FILE in \
-              "$CANDIDATE/core/build.gradle" \
-              "$CANDIDATE/core/build.gradle.kts"; do
-              if [ -f "$FILE" ]; then
-                CORE_FILE="$FILE"
-                break
-              fi
-            done
-
-            if [ -n "$ANDROID_FILE" ] && [ -n "$CORE_FILE" ]; then
-              PROJECT_DIR="$CANDIDATE"
-              ANDROID_BUILD_FILE="$ANDROID_FILE"
-              break
-            fi
           done < <(
-            find "$EXTRACT_DIR" -type f \
-              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            find "$DEST" -type f \
+              \( -name settings.gradle -o -name settings.gradle.kts \) \
               -print0
           )
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "HATA: Gradle proje klasörü bulunamadı."
-            echo "ZIP içindeki dosyalar:"
-            find "$EXTRACT_DIR" -maxdepth 6 -type f | head -n 200
+          if [ -z "$PROJECT" ]; then
+            echo "Gradle projesi bulunamadı."
+            find "$DEST" -maxdepth 6 -type f
             exit 1
           fi
 
-          if [ ! -f "$PROJECT_DIR/build.gradle" ] && \
-             [ ! -f "$PROJECT_DIR/build.gradle.kts" ]; then
-            echo "HATA: Ana build.gradle dosyası bulunamadı."
-            exit 1
-          fi
-
-          echo "Proje bulundu: $PROJECT_DIR"
-          echo "Android modülü: $ANDROID_BUILD_FILE"
+          echo "Proje: $PROJECT"
+          echo "Android build: $ANDROID_FILE"
 
           sed -i \
             -e 's/compileSdk 37/compileSdk 36/g' \
             -e 's/compileSdk = 37/compileSdk = 36/g' \
             -e 's/compileSdkVersion 37/compileSdkVersion 36/g' \
-            "$ANDROID_BUILD_FILE"
+            "$ANDROID_FILE"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
 
-          echo "SDK ayarları:"
-          grep -nE 'compileSdk|compileSdkVersion' "$ANDROID_BUILD_FILE" || true
+      - name: Fix Android SourceSet compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
 
-      - name: Validate project files
+          touch gradle.properties
+
+          if ! grep -q '^android.sourceset.disallowProvider=' gradle.properties; then
+            echo 'android.sourceset.disallowProvider=false' >> gradle.properties
+          else
+            sed -i \
+              's/^android.sourceset.disallowProvider=.*/android.sourceset.disallowProvider=false/' \
+              gradle.properties
+          fi
+
+          echo "Gradle uyumluluk ayarı:"
+          cat gradle.properties
+
+          echo "Native kütüphane görevleri:"
+          grep -nE 'copyAndroidNatives|preBuild|jniLibs|srcDirs' \
+            android/build.gradle || true
+
+      - name: Validate project
         shell: bash
         run: |
           set -euo pipefail
@@ -148,7 +138,7 @@ jobs:
           test -s core/src/main/java/com/novamind/game/NovaMindGame.java
           test -s android/src/main/java/com/novamind/game/android/AndroidLauncher.java
 
-          echo "Proje dosyaları kontrol edildi."
+          echo "Kaynak dosyalar doğrulandı."
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -158,24 +148,14 @@ jobs:
       - name: Build APK
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           cd "$PROJECT_DIR"
 
-          echo "İlk APK derlemesi başlıyor..."
+          gradle --no-daemon \
+            --stacktrace \
+            :android:assembleDebug
 
-          if gradle --no-daemon --stacktrace :android:assembleDebug; then
-            echo "İlk derleme başarılı."
-          else
-            echo "İlk derleme başarısız."
-            echo "Bağımlılıklar yenilenerek tekrar deneniyor..."
-
-            gradle --no-daemon \
-              --refresh-dependencies \
-              --stacktrace \
-              :android:assembleDebug
-          fi
-
-      - name: Verify APK
+      - name: Find and verify APK
         shell: bash
         run: |
           set -euo pipefail
@@ -184,23 +164,15 @@ jobs:
             -type f -name '*.apk' -print -quit)"
 
           if [ -z "$APK" ] || [ ! -s "$APK" ]; then
-            echo "HATA: APK oluşturulamadı."
+            echo "APK oluşturulamadı."
             find "$PROJECT_DIR/android/build/outputs" \
-              -maxdepth 6 -type f 2>/dev/null || true
+              -type f 2>/dev/null || true
             exit 1
           fi
-
-          echo "APK bulundu: $APK"
-          ls -lh "$APK"
 
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
-
-          if [ ! -x "$AAPT" ]; then
-            echo "HATA: AAPT bulunamadı."
-            exit 1
-          fi
-
           BADGING="$("$AAPT" dump badging "$APK")"
+
           echo "$BADGING" | head -n 15
 
           echo "$BADGING" | grep -Fq \
@@ -209,22 +181,20 @@ jobs:
           echo "$BADGING" | grep -Fq "sdkVersion:'23'"
           echo "$BADGING" | grep -Fq "targetSdkVersion:'36'"
 
-          APK_CONTENTS="$(unzip -Z1 "$APK")"
+          CONTENTS="$(unzip -Z1 "$APK")"
 
           for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
-            if ! grep -Fq "lib/$ABI/libgdx.so" <<< "$APK_CONTENTS"; then
-              echo "HATA: $ABI için libgdx.so bulunamadı."
-              exit 1
-            fi
+            echo "$CONTENTS" | grep -Fq "lib/$ABI/libgdx.so"
           done
 
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp "$APK" "$GITHUB_WORKSPACE/dist/NOVA-MIND-1.4.0-debug.apk"
 
-          echo "APK kontrolleri başarılı."
+          echo "APK doğrulandı."
+          ls -lh "$GITHUB_WORKSPACE/dist/"
 
       - name: Upload APK
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: NOVA-MIND-ANDROID-APK
           path: dist/NOVA-MIND-1.4.0-debug.apk
@@ -233,16 +203,12 @@ jobs:
 
       - name: Build summary
         if: success()
-        shell: bash
         run: |
           {
             echo "## NOVA MIND APK HAZIR"
-            echo ""
-            echo "- Proje ZIP dosyasından çıkarıldı."
-            echo "- Android SDK: 36"
-            echo "- Minimum SDK: 23"
-            echo "- Target SDK: 36"
-            echo "- APK doğrulaması başarılı."
-            echo "- APK: NOVA-MIND-1.4.0-debug.apk"
+            echo "Derleme başarılı."
+            echo "Android SDK: 36"
+            echo "Target SDK: 36"
+            echo "APK doğrulandı."
           } >> "$GITHUB_STEP_SUMMARY"
           
