@@ -1,8 +1,8 @@
+
 name: NOVA MIND Android APK
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,35 +11,48 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
-      - name: Java 17
-        uses: actions/setup-java@v6
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-37 build-tools;36.0.0'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.6.0'
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;36.0.0"
+
+      - name: Grant Gradle permission
+        run: chmod +x ./gradlew || true
 
       - name: Build APK
-        run: gradle --no-daemon --stacktrace :android:assembleDebug
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew --no-daemon --stacktrace :android:assembleDebug
+          else
+            gradle --no-daemon --stacktrace :android:assembleDebug
+          fi
 
       - name: Upload APK
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: NOVA-MIND-Android-APK
-          path: android/build/outputs/apk/debug/*.apk
+          name: NOVA-MIND-APK
+          path: |
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+          
