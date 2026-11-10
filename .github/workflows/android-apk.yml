@@ -1,4 +1,4 @@
-
+  
 name: NOVA MIND - Android APK
 
 on:
@@ -16,14 +16,14 @@ jobs:
   build:
     name: NOVA MIND 1.4.0 APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -36,27 +36,119 @@ jobs:
           log-accepted-android-sdk-licenses: 'false'
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
+          set -euo pipefail
+
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Configure project SDK
+      - name: Extract ZIP and locate project
+        shell: bash
         run: |
-          sed -i 's/compileSdk 37/compileSdk 36/g' android/build.gradle
+          set -euo pipefail
 
-      - name: Validate source files
+          ZIP_FILE="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_4.zip"
+          EXTRACT_DIR="$RUNNER_TEMP/nova-mind-source"
+
+          if [ ! -s "$ZIP_FILE" ]; then
+            echo "HATA: Proje ZIP dosyası bulunamadı veya boş."
+            find "$GITHUB_WORKSPACE" -maxdepth 3 -type f
+            exit 1
+          fi
+
+          echo "ZIP kontrol ediliyor..."
+          unzip -tq "$ZIP_FILE"
+
+          rm -rf "$EXTRACT_DIR"
+          mkdir -p "$EXTRACT_DIR"
+
+          echo "Proje ZIP dosyası açılıyor..."
+          unzip -oq "$ZIP_FILE" -d "$EXTRACT_DIR"
+
+          PROJECT_DIR=""
+          ANDROID_BUILD_FILE=""
+
+          while IFS= read -r -d '' SETTINGS_FILE; do
+            CANDIDATE="$(dirname "$SETTINGS_FILE")"
+
+            ANDROID_FILE=""
+            CORE_FILE=""
+
+            for FILE in \
+              "$CANDIDATE/android/build.gradle" \
+              "$CANDIDATE/android/build.gradle.kts"; do
+              if [ -f "$FILE" ]; then
+                ANDROID_FILE="$FILE"
+                break
+              fi
+            done
+
+            for FILE in \
+              "$CANDIDATE/core/build.gradle" \
+              "$CANDIDATE/core/build.gradle.kts"; do
+              if [ -f "$FILE" ]; then
+                CORE_FILE="$FILE"
+                break
+              fi
+            done
+
+            if [ -n "$ANDROID_FILE" ] && [ -n "$CORE_FILE" ]; then
+              PROJECT_DIR="$CANDIDATE"
+              ANDROID_BUILD_FILE="$ANDROID_FILE"
+              break
+            fi
+          done < <(
+            find "$EXTRACT_DIR" -type f \
+              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+              -print0
+          )
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "HATA: Gradle proje klasörü bulunamadı."
+            echo "ZIP içindeki dosyalar:"
+            find "$EXTRACT_DIR" -maxdepth 6 -type f | head -n 200
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT_DIR/build.gradle" ] && \
+             [ ! -f "$PROJECT_DIR/build.gradle.kts" ]; then
+            echo "HATA: Ana build.gradle dosyası bulunamadı."
+            exit 1
+          fi
+
+          echo "Proje bulundu: $PROJECT_DIR"
+          echo "Android modülü: $ANDROID_BUILD_FILE"
+
+          sed -i \
+            -e 's/compileSdk 37/compileSdk 36/g' \
+            -e 's/compileSdk = 37/compileSdk = 36/g' \
+            -e 's/compileSdkVersion 37/compileSdkVersion 36/g' \
+            "$ANDROID_BUILD_FILE"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "SDK ayarları:"
+          grep -nE 'compileSdk|compileSdkVersion' "$ANDROID_BUILD_FILE" || true
+
+      - name: Validate project files
+        shell: bash
         run: |
-          set -e
-          test -s settings.gradle
-          test -s build.gradle
-          test -s android/build.gradle
-          test -s core/build.gradle
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+
+          test -f settings.gradle || test -f settings.gradle.kts
+          test -f build.gradle || test -f build.gradle.kts
+          test -f android/build.gradle || test -f android/build.gradle.kts
+          test -f core/build.gradle || test -f core/build.gradle.kts
+
           test -s android/src/main/AndroidManifest.xml
           test -s core/src/main/java/com/novamind/game/NovaMindGame.java
           test -s android/src/main/java/com/novamind/game/android/AndroidLauncher.java
-          echo "Project validation passed."
+
+          echo "Proje dosyaları kontrol edildi."
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -64,27 +156,52 @@ jobs:
           gradle-version: '9.6.0'
 
       - name: Build APK
+        shell: bash
         run: |
-          gradle --no-daemon --stacktrace :android:assembleDebug
+          set -uo pipefail
+          cd "$PROJECT_DIR"
+
+          echo "İlk APK derlemesi başlıyor..."
+
+          if gradle --no-daemon --stacktrace :android:assembleDebug; then
+            echo "İlk derleme başarılı."
+          else
+            echo "İlk derleme başarısız."
+            echo "Bağımlılıklar yenilenerek tekrar deneniyor..."
+
+            gradle --no-daemon \
+              --refresh-dependencies \
+              --stacktrace \
+              :android:assembleDebug
+          fi
 
       - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
 
-          APK=$(find android/build/outputs/apk/debug \
-            -name '*.apk' -type f | head -n 1)
+          APK="$(find "$PROJECT_DIR/android/build/outputs/apk" \
+            -type f -name '*.apk' -print -quit)"
 
-          test -n "$APK"
-          test -s "$APK"
+          if [ -z "$APK" ] || [ ! -s "$APK" ]; then
+            echo "HATA: APK oluşturulamadı."
+            find "$PROJECT_DIR/android/build/outputs" \
+              -maxdepth 6 -type f 2>/dev/null || true
+            exit 1
+          fi
 
-          echo "APK FOUND: $APK"
+          echo "APK bulundu: $APK"
           ls -lh "$APK"
 
-          BADGING=$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
-            dump badging "$APK")
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
 
-          echo "$BADGING" | head -n 10
+          if [ ! -x "$AAPT" ]; then
+            echo "HATA: AAPT bulunamadı."
+            exit 1
+          fi
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING" | head -n 15
 
           echo "$BADGING" | grep -Fq \
             "package: name='com.novamind.game.debug'"
@@ -92,25 +209,40 @@ jobs:
           echo "$BADGING" | grep -Fq "sdkVersion:'23'"
           echo "$BADGING" | grep -Fq "targetSdkVersion:'36'"
 
-          CONTENTS=$(unzip -Z1 "$APK")
+          APK_CONTENTS="$(unzip -Z1 "$APK")"
 
           for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
-            echo "$CONTENTS" | grep -Fq "lib/$ABI/libgdx.so"
+            if ! grep -Fq "lib/$ABI/libgdx.so" <<< "$APK_CONTENTS"; then
+              echo "HATA: $ABI için libgdx.so bulunamadı."
+              exit 1
+            fi
           done
 
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/NOVA-MIND-1.4.0-debug.apk"
+
+          echo "APK kontrolleri başarılı."
+
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NOVA-MIND-ANDROID-APK
-          path: android/build/outputs/apk/debug/*.apk
+          path: dist/NOVA-MIND-1.4.0-debug.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Build result
+      - name: Build summary
         if: success()
+        shell: bash
         run: |
-          echo "## NOVA MIND 1.4.0 APK READY" >> "$GITHUB_STEP_SUMMARY"
-          echo "Android SDK: 36" >> "$GITHUB_STEP_SUMMARY"
-          echo "Target SDK: 36" >> "$GITHUB_STEP_SUMMARY"
-          echo "APK build successful." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## NOVA MIND APK HAZIR"
+            echo ""
+            echo "- Proje ZIP dosyasından çıkarıldı."
+            echo "- Android SDK: 36"
+            echo "- Minimum SDK: 23"
+            echo "- Target SDK: 36"
+            echo "- APK doğrulaması başarılı."
+            echo "- APK: NOVA-MIND-1.4.0-debug.apk"
+          } >> "$GITHUB_STEP_SUMMARY"
           
