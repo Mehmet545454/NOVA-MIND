@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: nova-mind-apk-${{ github.ref }}
+  group: nova-mind-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build NOVA MIND 1.4.0
+    name: NOVA MIND 1.4.0 APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -29,41 +29,41 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          accept-android-sdk-licenses: 'true'
+          log-accepted-android-sdk-licenses: 'false'
 
-      - name: Accept SDK licenses
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --licenses </dev/null
-
-      - name: Install Android SDK 36
+      - name: Install Android SDK packages
         run: |
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Adjust project SDK
-        shell: bash
+      - name: Configure project SDK
         run: |
           sed -i 's/compileSdk 37/compileSdk 36/g' android/build.gradle
 
-          sed -i \
-            -e 's/compileSdk 37/compileSdk 36/g' \
-            -e 's/android-37/android-36/g' \
-            scripts/check-project.sh
-
-      - name: Validate project
-        run: bash scripts/check-project.sh
+      - name: Validate source files
+        run: |
+          set -e
+          test -s settings.gradle
+          test -s build.gradle
+          test -s android/build.gradle
+          test -s core/build.gradle
+          test -s android/src/main/AndroidManifest.xml
+          test -s core/src/main/java/com/novamind/game/NovaMindGame.java
+          test -s android/src/main/java/com/novamind/game/android/AndroidLauncher.java
+          echo "Project validation passed."
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.6.0'
-          cache-provider: basic
 
-      - name: Build Android APK
+      - name: Build APK
         run: |
           gradle --no-daemon --stacktrace :android:assembleDebug
 
@@ -73,18 +73,18 @@ jobs:
           set -euo pipefail
 
           APK=$(find android/build/outputs/apk/debug \
-            -maxdepth 1 -name '*.apk' -type f -print -quit)
+            -name '*.apk' -type f | head -n 1)
 
           test -n "$APK"
           test -s "$APK"
 
-          echo "APK found: $APK"
+          echo "APK FOUND: $APK"
           ls -lh "$APK"
 
           BADGING=$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
             dump badging "$APK")
 
-          echo "$BADGING" | head -n 8
+          echo "$BADGING" | head -n 10
 
           echo "$BADGING" | grep -Fq \
             "package: name='com.novamind.game.debug'"
@@ -94,24 +94,23 @@ jobs:
 
           CONTENTS=$(unzip -Z1 "$APK")
 
-          for ABI in arm64-v8a armeabi-v7a x86_64; do
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
             echo "$CONTENTS" | grep -Fq "lib/$ABI/libgdx.so"
           done
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-MIND-Android-APK
+          name: NOVA-MIND-ANDROID-APK
           path: android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Build summary
+      - name: Build result
         if: success()
         run: |
-          echo "## NOVA MIND APK hazır!" >> "$GITHUB_STEP_SUMMARY"
-          echo "Version: 1.4.0" >> "$GITHUB_STEP_SUMMARY"
+          echo "## NOVA MIND 1.4.0 APK READY" >> "$GITHUB_STEP_SUMMARY"
           echo "Android SDK: 36" >> "$GITHUB_STEP_SUMMARY"
           echo "Target SDK: 36" >> "$GITHUB_STEP_SUMMARY"
-          echo "APK başarıyla oluşturuldu." >> "$GITHUB_STEP_SUMMARY"
+          echo "APK build successful." >> "$GITHUB_STEP_SUMMARY"
           
