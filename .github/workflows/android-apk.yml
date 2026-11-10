@@ -3,7 +3,6 @@ name: NOVA MIND - Android APK
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,92 +13,93 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-apk:
-    name: Build and verify Android APK
+  build:
+    name: Build NOVA MIND 1.4.0
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install JDK 17
-        uses: actions/setup-java@v6
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android command-line tools
-        uses: android-actions/setup-android@v4
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
+      - name: Accept SDK licenses
         shell: bash
         run: |
-          set +o pipefail
-          yes | sdkmanager --licenses
+          yes | sdkmanager --licenses || true
           sdkmanager --licenses </dev/null
 
-      - name: Install Android SDK packages
-        shell: bash
+      - name: Install Android SDK 36
         run: |
-          # Required SDK versions: android-37 build-tools;36.0.0
           sdkmanager --install \
             "platform-tools" \
-            "platforms;android-37" \
+            "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Configure Gradle 9.6
-        uses: gradle/actions/setup-gradle@v6
+      - name: Adjust project SDK
+        shell: bash
+        run: |
+          sed -i 's/compileSdk 37/compileSdk 36/g' android/build.gradle
+
+          sed -i \
+            -e 's/compileSdk 37/compileSdk 36/g' \
+            -e 's/android-37/android-36/g' \
+            scripts/check-project.sh
+
+      - name: Validate project
+        run: bash scripts/check-project.sh
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
           cache-provider: basic
 
-      - name: Validate project structure
-        run: bash scripts/check-project.sh
-
-      - name: Show toolchain
+      - name: Build Android APK
         run: |
-          java -version
-          gradle --version
+          gradle --no-daemon --stacktrace :android:assembleDebug
 
-      - name: Compile debug APK including native libraries
-        run: gradle --no-daemon --stacktrace :android:assembleDebug
-
-      - name: Verify APK package
+      - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="$(find android/build/outputs/apk/debug \
-            -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          APK=$(find android/build/outputs/apk/debug \
+            -maxdepth 1 -name '*.apk' -type f -print -quit)
 
           test -n "$APK"
           test -s "$APK"
 
-          echo "APK file: $APK"
+          echo "APK found: $APK"
           ls -lh "$APK"
 
-          BADGING="$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
-            dump badging "$APK")"
+          BADGING=$("$ANDROID_HOME/build-tools/36.0.0/aapt" \
+            dump badging "$APK")
 
-          printf '%s\n' "$BADGING" | sed -n '1,8p'
+          echo "$BADGING" | head -n 8
 
-          printf '%s\n' "$BADGING" | grep -Fq \
+          echo "$BADGING" | grep -Fq \
             "package: name='com.novamind.game.debug'"
 
-          printf '%s\n' "$BADGING" | grep -Fq "sdkVersion:'23'"
-          printf '%s\n' "$BADGING" | grep -Fq "targetSdkVersion:'36'"
+          echo "$BADGING" | grep -Fq "sdkVersion:'23'"
+          echo "$BADGING" | grep -Fq "targetSdkVersion:'36'"
 
-          APK_CONTENTS="$(unzip -Z1 "$APK")"
+          CONTENTS=$(unzip -Z1 "$APK")
 
-          # Each native library must be present as lib/$ABI/libgdx.so.
           for ABI in arm64-v8a armeabi-v7a x86_64; do
-            printf '%s\n' "$APK_CONTENTS" | \
-              grep -Fq "lib/$ABI/libgdx.so"
+            echo "$CONTENTS" | grep -Fq "lib/$ABI/libgdx.so"
           done
 
-      - name: Upload installable debug APK
-        uses: actions/upload-artifact@v7
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: NOVA-MIND-Android-APK
           path: android/build/outputs/apk/debug/*.apk
@@ -109,8 +109,9 @@ jobs:
       - name: Build summary
         if: success()
         run: |
-          echo '## NOVA MIND APK is ready' >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Download **NOVA-MIND-Android-APK** from the Artifacts section.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Version: 1.4.0 | Compile SDK: 37 | Target SDK: 36 | Min Android: 6.0 (API 23).' >> "$GITHUB_STEP_SUMMARY"
+          echo "## NOVA MIND APK hazır!" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: 1.4.0" >> "$GITHUB_STEP_SUMMARY"
+          echo "Android SDK: 36" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target SDK: 36" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK başarıyla oluşturuldu." >> "$GITHUB_STEP_SUMMARY"
           
