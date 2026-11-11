@@ -1,4 +1,4 @@
-
+          
 name: NOVA MIND Android APK
 
 on:
@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - ".github/workflows/android-apk.yml"
-      - "NOVA_MIND_ANDROID_COMPLETE_V1_5_CRASH_REPORT.zip"
+      - "NOVA_MIND_ANDROID_V1_5_1_STARTUP_REPORT.zip"
 
 permissions:
   contents: read
@@ -39,15 +39,15 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
           sdkmanager --licenses </dev/null || true
 
-      - name: Projeyi ZIP dosyasından çıkar
+      - name: 1.5.1 Projesini ZIP dosyasından çıkar
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_5_CRASH_REPORT.zip"
+          ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_V1_5_1_STARTUP_REPORT.zip"
 
           if [ ! -s "$ZIP" ]; then
-            echo "HATA: NOVA MIND V1.5 ZIP bulunamadı!"
+            echo "HATA: NOVA MIND V1.5.1 ZIP bulunamadı!"
             ls -lah "$GITHUB_WORKSPACE"
             exit 1
           fi
@@ -126,14 +126,14 @@ jobs:
           test -f "$PROJECT_DIR/settings.gradle" || test -f "$PROJECT_DIR/settings.gradle.kts"
           test -f "$PROJECT_DIR/android/src/main/AndroidManifest.xml"
           test -f "$PROJECT_DIR/core/src/main/java/com/novamind/game/NovaMindGame.java"
-          echo "Proje dosyaları bulundu."
+          echo "NOVA MIND 1.5.1 proje dosyaları bulundu."
 
       - name: Gradle kur
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.0"
 
-      - name: Android APK oluştur
+      - name: NOVA MIND 1.5.1 APK oluştur
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euo pipefail
@@ -154,14 +154,14 @@ jobs:
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp "$APK" "$GITHUB_WORKSPACE/dist/NOVA-MIND-debug.apk"
-          ls -lh "$GITHUB_WORKSPACE/dist/NOVA-MIND-debug.apk"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/NOVA-MIND-1.5.1-debug.apk"
+          ls -lh "$GITHUB_WORKSPACE/dist/NOVA-MIND-1.5.1-debug.apk"
 
       - name: APK yükle
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-MIND-Android-APK
-          path: dist/NOVA-MIND-debug.apk
+          name: NOVA-MIND-1.5.1-Android-APK
+          path: dist/NOVA-MIND-1.5.1-debug.apk
           if-no-files-found: error
           retention-days: 14
           
