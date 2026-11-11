@@ -33,10 +33,11 @@ jobs:
           packages: ""
 
       - name: Android SDK paketlerini kur
+        shell: bash
         run: |
           set -euo pipefail
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-          yes | sdkmanager --licenses
+          sdkmanager --licenses </dev/null || true
 
       - name: Projeyi ZIP dosyasından çıkar
         shell: bash
@@ -120,20 +121,15 @@ jobs:
             echo 'android.sourceset.disallowProvider=false' >> "$FILE"
           fi
 
-          echo "Gradle ayarları:"
           cat "$FILE"
 
       - name: Proje dosyalarını kontrol et
         shell: bash
         run: |
           set -euo pipefail
-
-          test -f "$PROJECT_DIR/settings.gradle" || \
-            test -f "$PROJECT_DIR/settings.gradle.kts"
-
+          test -f "$PROJECT_DIR/settings.gradle" || test -f "$PROJECT_DIR/settings.gradle.kts"
           test -f "$PROJECT_DIR/android/src/main/AndroidManifest.xml"
           test -f "$PROJECT_DIR/core/src/main/java/com/novamind/game/NovaMindGame.java"
-
           echo "Proje dosyaları bulundu."
 
       - name: Gradle kur
@@ -163,8 +159,6 @@ jobs:
 
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp "$APK" "$GITHUB_WORKSPACE/dist/NOVA-MIND-debug.apk"
-
-          echo "APK hazır:"
           ls -lh "$GITHUB_WORKSPACE/dist/NOVA-MIND-debug.apk"
 
       - name: APK yükle
