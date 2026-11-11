@@ -8,7 +8,7 @@ on:
       - main
     paths:
       - ".github/workflows/android-apk.yml"
-      - "NOVA_MIND_ANDROID_COMPLETE_V1_4*.zip"
+      - "NOVA_MIND_ANDROID_COMPLETE_V1_5_CRASH_REPORT.zip"
 
 permissions:
   contents: read
@@ -44,14 +44,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_4_ANDROID_FIX.zip"
+          ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_5_CRASH_REPORT.zip"
 
           if [ ! -s "$ZIP" ]; then
-            ZIP="$GITHUB_WORKSPACE/NOVA_MIND_ANDROID_COMPLETE_V1_4.zip"
-          fi
-
-          if [ ! -s "$ZIP" ]; then
-            echo "HATA: NOVA MIND ZIP bulunamadı!"
+            echo "HATA: NOVA MIND V1.5 ZIP bulunamadı!"
             ls -lah "$GITHUB_WORKSPACE"
             exit 1
           fi
