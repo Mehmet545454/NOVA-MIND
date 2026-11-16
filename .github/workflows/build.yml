@@ -1,4 +1,3 @@
-
 name: AI Eco Campus Tycoon 3D Android Build
 
 on:
@@ -165,3 +164,4 @@ jobs:
           name: AI Eco Campus Tycoon 3D - Build ${{ github.run_number }}
           prerelease: true
           files: output/AI_Eco_Campus_Tycoon3D.apk
+          
