@@ -22,54 +22,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract game ZIP
+      - name: Extract game
         run: |
-          unzip -o AI_Eco_Campus_Tycoon3D_JUnit_Fixed_v2.zip -d game
-          echo "Extracted project:"
-          find game -maxdepth 3 -type f | head -100
+          unzip -o AI_Eco_Campus_Tycoon3D_Compile_Fixed_v3.zip -d game
+          test -f game/settings.gradle
 
-      - name: Locate Android project
-        run: |
-          PROJECT_DIR=$(find game -name settings.gradle -o -name settings.gradle.kts | head -1 | xargs dirname)
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Gradle settings file not found"
-            exit 1
-          fi
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-          echo "Project found: $PROJECT_DIR"
-
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Install Android SDK 36
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
 
-      - name: Build Android APK
+      - name: Build APK
         run: |
-          cd "$PROJECT_DIR"
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon :android:assembleDebug
-          else
-            gradle --no-daemon :android:assembleDebug
-          fi
+          cd game
+          gradle --no-daemon :android:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AI-Eco-Campus-Tycoon3D-APK
-          path: |
-            game/**/build/outputs/apk/debug/*.apk
+          path: game/android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          
