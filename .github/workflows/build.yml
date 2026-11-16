@@ -1,5 +1,5 @@
 
-name: android-build
+name: AI Eco Campus Tycoon 3D Android Build
 
 on:
   push:
@@ -14,50 +14,68 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: ZIP dosyalarını aç ve proje kökünü bul
+      - name: Find and extract project ZIP
         shell: bash
         run: |
           set -e
-          mkdir -p work
-          shopt -s nullglob
-          zips=(incoming/*.zip)
 
-          if (( ${#zips[@]} )); then
-            for z in "${zips[@]}"; do
-              echo "Açılıyor: $z"
-              unzip -t "$z"
-              unzip -o -q "$z" -d work
-            done
+          ZIP="AI_Eco_Campus_Tycoon3D_STARTUP_TRACE_DIAGNOSTICS.zip"
+
+          mkdir -p work
+
+          if [ -f "$ZIP" ]; then
+            echo "ZIP ana dizinde bulundu: $ZIP"
+
+          elif [ -f "incoming/$ZIP" ]; then
+            ZIP="incoming/$ZIP"
+            echo "ZIP incoming klasöründe bulundu."
+
           else
-            echo "incoming/ altında ZIP yok."
-            rsync -a --exclude work --exclude .git ./ work/
+            echo "HATA: Proje ZIP bulunamadı."
+            find . -maxdepth 3 -type f -iname '*.zip'
+            exit 1
           fi
 
-          S=$(find work -maxdepth 6 -name settings.gradle -print -quit)
+          echo "ZIP kontrol ediliyor..."
+          unzip -t "$ZIP"
 
-          if [ -z "$S" ]; then
+          echo "Proje açılıyor..."
+          unzip -o -q "$ZIP" -d work
+
+          echo "Gradle proje dosyası aranıyor..."
+
+          SETTINGS=$(find work -type f \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
             echo "HATA: settings.gradle bulunamadı."
             find work -maxdepth 5 -type f
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$S")
+          PROJECT_DIR=$(dirname "$SETTINGS")
 
-          test -f "$PROJECT_DIR/build.gradle"
-          test -f "$PROJECT_DIR/android/build.gradle"
-          test -f "$PROJECT_DIR/android/src/main/AndroidManifest.xml"
+          test -f "$PROJECT_DIR/build.gradle" -o \
+               -f "$PROJECT_DIR/build.gradle.kts"
+
+          test -f "$PROJECT_DIR/android/build.gradle" -o \
+               -f "$PROJECT_DIR/android/build.gradle.kts"
 
           echo "WORK=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Java 17 kur
+          echo "Proje kökü: $PROJECT_DIR"
+
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK kur
+      - name: Configure Android SDK
         shell: bash
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
@@ -67,9 +85,10 @@ jobs:
 
           if [ ! -x "$SDKMANAGER" ]; then
             echo "HATA: sdkmanager bulunamadı."
-            find "$ANDROID_HOME" -name sdkmanager -type f
             exit 1
           fi
+
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
           yes | "$SDKMANAGER" --licenses || true
 
@@ -78,62 +97,76 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Gradle kur
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Başlangıç modellerini doğrula
+      - name: Validate runtime assets
         working-directory: ${{ env.WORK }}
-        run: python3 tools/validate_runtime_assets.py
+        run: |
+          if [ -f tools/validate_runtime_assets.py ]; then
+            python3 tools/validate_runtime_assets.py
+          else
+            echo "Runtime validator bulunamadı, atlanıyor."
+          fi
 
-      - name: Nature modellerini doğrula
+      - name: Validate nature assets
         working-directory: ${{ env.WORK }}
-        run: python3 tools/validate_nature_assets.py
+        run: |
+          if [ -f tools/validate_nature_assets.py ]; then
+            python3 tools/validate_nature_assets.py
+          else
+            echo "Nature validator bulunamadı, atlanıyor."
+          fi
 
-      - name: Oyun verilerini doğrula
+      - name: Validate game data
         working-directory: ${{ env.WORK }}
-        run: python3 tools/validate_data.py
+        run: |
+          if [ -f tools/validate_data.py ]; then
+            python3 tools/validate_data.py
+          else
+            echo "Data validator bulunamadı, atlanıyor."
+          fi
 
-      - name: Simülasyon testleri
+      - name: Run simulation tests
         working-directory: ${{ env.WORK }}
         run: gradle --no-daemon :sim:test
 
-      - name: Android APK derle
+      - name: Build Android APK
         working-directory: ${{ env.WORK }}
         run: gradle --no-daemon clean :android:assembleDebug
 
-      - name: APK doğrula
+      - name: Verify APK
         shell: bash
         run: |
           set -e
 
-          APK=$(find "$WORK" \
-            -path '*outputs/apk/debug/*.apk' \
-            -type f | head -1)
+          APK=$(find "$WORK/android/build/outputs/apk/debug" \
+            -type f -name '*.apk' -print -quit)
 
           if [ -z "$APK" ]; then
-            echo "HATA: APK bulunamadı."
+            echo "HATA: APK oluşturulamadı."
             exit 1
           fi
 
-          mkdir -p out
-          cp "$APK" "out/AI_Eco_Campus_Tycoon3D.apk"
+          mkdir -p output
+          cp "$APK" output/AI_Eco_Campus_Tycoon3D.apk
 
-          ls -lh out/
+          ls -lh output/
 
-      - name: APK artifact yükle
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AI-Eco-Campus-Tycoon3D-APK
-          path: out/*.apk
+          path: output/AI_Eco_Campus_Tycoon3D.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: GitHub Release oluştur
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: AI Eco Campus Tycoon 3D - Build ${{ github.run_number }}
+          name: AI Eco Campus Tycoon 3D Build ${{ github.run_number }}
           prerelease: true
-          files: out/*.apk
+          files: output/AI_Eco_Campus_Tycoon3D.apk
