@@ -8,38 +8,46 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-22.04
-
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract game
-        run: |
-          unzip -o AI_Eco_Campus_Tycoon3D_Compile_Fixed_v3.zip -d game
-          test -f game/settings.gradle
-
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install Android SDK 36
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          sdkmanager --licenses
+          sdkmanager \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
+
+      - name: Verify ZIP
+        run: |
+          test -f AI_Eco_Campus_Tycoon3D_Compile_Fixed_v3.zip
+          unzip -t AI_Eco_Campus_Tycoon3D_Compile_Fixed_v3.zip
+
+      - name: Extract project
+        run: |
+          mkdir -p game
+          unzip -o AI_Eco_Campus_Tycoon3D_Compile_Fixed_v3.zip -d game
+          test -f game/settings.gradle
+          test -f game/build.gradle
+          test -f game/android/build.gradle
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -47,13 +55,27 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Build APK
+        working-directory: game
         run: |
-          cd game
-          gradle --no-daemon :android:assembleDebug
+          gradle --no-daemon clean :android:assembleDebug
+
+      - name: Verify APK
+        run: |
+          APK=$(find game/android/build/outputs/apk/debug \
+            -type f -name '*.apk' | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK bulunamadi!"
+            exit 1
+          fi
+
+          mkdir -p output
+          cp "$APK" output/AI_Eco_Campus_Tycoon3D.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AI-Eco-Campus-Tycoon3D-APK
-          path: game/android/build/outputs/apk/debug/*.apk
+          path: output/AI_Eco_Campus_Tycoon3D.apk
           if-no-files-found: error
+          retention-days: 14
